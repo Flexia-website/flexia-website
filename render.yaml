@@ -2,9 +2,9 @@ services:
   - type: web
     name: face-search-pro
     runtime: python
-    plan: starter
-    buildCommand: "pip install --upgrade pip && pip install -r requirements.txt"
-    startCommand: "gunicorn --bind 0.0.0.0:$PORT --timeout 120 app:app"
+    plan: standard
+    buildCommand: "pip install --upgrade pip setuptools wheel && pip install -r requirements.txt"
+    startCommand: "gunicorn --bind 0.0.0.0:$PORT --timeout 120 --workers 2 app:app"
     envVars:
       - key: PYTHON_VERSION
         value: 3.10.0
@@ -12,7 +12,9 @@ services:
         generateValue: true
       - key: FLASK_ENV
         value: production
+      - key: PYTHONUNBUFFERED
+        value: "1"
     disk:
       name: face-index
       mountPath: /app/data
-      sizeGB: 5
+      sizeGB: 10
