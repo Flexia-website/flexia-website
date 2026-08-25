@@ -2,7 +2,6 @@ FROM python:3.11-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    cmake \
     git \
     libopenblas-dev \
     liblapack-dev \
@@ -12,9 +11,17 @@ WORKDIR /app
 
 COPY requirements.txt .
 
-# dlib compiles from source here - this step can take several minutes
+# Use pip-installed CMake (older, compatible version) instead of the system
+# apt package - newer system CMake versions reject dlib's old
+# cmake_minimum_required() declaration.
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install "cmake<3.31"
+
+# Extra safety net: allow old CMake policies even if a newer CMake is used.
+ENV CMAKE_POLICY_VERSION_MINIMUM=3.5
+
+# dlib compiles from source here - this step can take several minutes
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
