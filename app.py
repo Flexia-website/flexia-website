@@ -119,7 +119,12 @@ def search():
             if not target_urls or not isinstance(target_urls, list):
                 return jsonify({'error': 'No target website URL provided', 'code': 'NO_URLS'}), 400
 
-            max_pages = min(int(request.form.get('max_pages', 3)), 10)
+            # Depth choice controls how many pages of the site get crawled.
+            # "Thorough" is NOT unlimited - a truly uncapped crawl inside a
+            # single HTTP request risks hanging forever on large sites and
+            # timing out. This cap is generous but bounded for safety.
+            search_depth = request.form.get('search_depth', 'quick')
+            max_pages = 60 if search_depth == 'thorough' else 8
 
             filename = secure_filename(file.filename)
             temp_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{uuid.uuid4()}_{filename}")
@@ -377,6 +382,22 @@ def health_check():
         'timestamp': datetime.now().isoformat(),
         'faces_indexed': len(searcher.known_face_encodings),
         'version': '1.0.0'
+    })
+
+@app.route('/version')
+def version_check():
+    """
+    Diagnostic endpoint - shows the ACTUAL signature of search_websites
+    as loaded on this running server. Use this to confirm a deploy picked
+    up the latest utils/web_crawler.py instead of guessing from logs.
+    """
+    import inspect
+    sig = str(inspect.signature(web_crawler.search_websites))
+    has_query_image = 'query_image' in sig
+    return jsonify({
+        'search_websites_signature': sig,
+        'has_query_image_param': has_query_image,
+        'status': 'UP TO DATE' if has_query_image else 'OLD VERSION STILL DEPLOYED - push did not take effect'
     })
 
 # ============ ERROR HANDLERS ============

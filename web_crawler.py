@@ -7,6 +7,11 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# VERSION MARKER - if this line does not appear in your Render deploy logs
+# on startup, the server is NOT running this file. Check your git push /
+# Render deploy status if you don't see it.
+logger.info("✅ web_crawler.py loaded - VERSION 2 (query_image search enabled)")
+
 class WebCrawler:
     def __init__(self):
         self.session = requests.Session()
