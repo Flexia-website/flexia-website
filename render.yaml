@@ -11,8 +11,6 @@ services:
         generateValue: true
       - key: FLASK_ENV
         value: production
-      - key: PYTHONUNBUFFERED
-        value: "1"
     disk:
       name: face-index
       mountPath: /app/data

@@ -6,14 +6,7 @@ echo "🚀 Building Face Search Pro..."
 apt-get update
 apt-get install -y --no-install-recommends \
     build-essential \
-    cmake \
-    pkg-config \
-    libopenblas-dev \
-    liblapack-dev \
-    libx11-dev \
-    libsm6 \
-    libxext6 \
-    libxrender-dev
+    git
 
 pip install --upgrade pip
 pip install --no-cache-dir -r requirements.txt
