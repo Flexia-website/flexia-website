@@ -75,116 +75,130 @@ def dashboard():
 
 @app.route('/search', methods=['POST'])
 def search():
-    """Search for faces in uploaded image or URL"""
+    """Search for faces in uploaded image, image URL, or across a specific website"""
     try:
-        # Get search parameters
-        data = request.get_json() if request.is_json else {}
-        if not data and request.method == 'POST':
-            if 'image' not in request.files:
-                return jsonify({'error': 'No data provided', 'code': 'NO_DATA'}), 400
-            data = {'type': 'upload'}
+        is_multipart = request.content_type and 'multipart/form-data' in request.content_type
 
-        query_type = data.get('type', 'upload')
-        use_landmarks = data.get('use_landmarks', True)
-        top_k = min(int(data.get('top_k', 10)), 50)  # Cap at 50 results
-        
-        # Get face data
-        face_data = None
-        source = None
-        
-        if query_type == 'upload':
-            # Handle image upload
+        if is_multipart:
+            data = {}
+            query_type = request.form.get('type', 'upload')
+            use_landmarks = request.form.get('use_landmarks', 'true').lower() == 'true'
+            top_k = min(int(request.form.get('top_k', 10)), 50)
+        else:
+            data = request.get_json() if request.is_json else {}
+            query_type = data.get('type', 'upload')
+            use_landmarks = data.get('use_landmarks', True)
+            top_k = min(int(data.get('top_k', 10)), 50)
+
+        # ============ WEB SEARCH: crawl ONE website, scoped to that domain only ============
+        # This never leaves the given site - it only follows same-domain links,
+        # and it compares each image it finds directly against the uploaded
+        # query image below. It does not search the open internet.
+        if query_type == 'web':
             if 'image' not in request.files:
-                return jsonify({'error': 'No image uploaded', 'code': 'NO_IMAGE'}), 400
-            
+                return jsonify({'error': 'Please upload a reference image to search for', 'code': 'NO_IMAGE'}), 400
+
             file = request.files['image']
             if file.filename == '':
                 return jsonify({'error': 'No file selected', 'code': 'NO_FILE'}), 400
-            
-            # Validate file type
+
             allowed_ext = {'jpg', 'jpeg', 'png', 'webp', 'gif'}
             if not ('.' in file.filename and file.filename.rsplit('.', 1)[1].lower() in allowed_ext):
                 return jsonify({'error': 'Invalid file type. Use JPG, PNG, WEBP, or GIF', 'code': 'INVALID_TYPE'}), 400
-            
-            # Save temporarily
+
+            raw_urls = request.form.get('target_urls', '[]')
+            try:
+                target_urls = json.loads(raw_urls) if isinstance(raw_urls, str) else raw_urls
+            except (ValueError, TypeError):
+                target_urls = []
+
+            if not target_urls or not isinstance(target_urls, list):
+                return jsonify({'error': 'No target website URL provided', 'code': 'NO_URLS'}), 400
+
+            max_pages = min(int(request.form.get('max_pages', 3)), 10)
+
+            filename = secure_filename(file.filename)
+            temp_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{uuid.uuid4()}_{filename}")
+            file.save(temp_path)
+
+            try:
+                raw_results = web_crawler.search_websites(
+                    target_urls, searcher, query_image=temp_path,
+                    max_pages=max_pages, use_landmarks=use_landmarks
+                )
+            finally:
+                if os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except:
+                        pass
+
+            formatted_results = [_format_match(m, top_k) for m in raw_results[:top_k]]
+
+            return jsonify({
+                'success': True,
+                'type': 'web_search',
+                'results': formatted_results,
+                'count': len(formatted_results),
+                'use_landmarks': use_landmarks
+            })
+
+        # ============ UPLOAD / URL SEARCH: compare against the saved index ============
+        face_data = None
+        source = None
+
+        if query_type == 'upload':
+            if 'image' not in request.files:
+                return jsonify({'error': 'No image uploaded', 'code': 'NO_IMAGE'}), 400
+
+            file = request.files['image']
+            if file.filename == '':
+                return jsonify({'error': 'No file selected', 'code': 'NO_FILE'}), 400
+
+            allowed_ext = {'jpg', 'jpeg', 'png', 'webp', 'gif'}
+            if not ('.' in file.filename and file.filename.rsplit('.', 1)[1].lower() in allowed_ext):
+                return jsonify({'error': 'Invalid file type. Use JPG, PNG, WEBP, or GIF', 'code': 'INVALID_TYPE'}), 400
+
             filename = secure_filename(file.filename)
             temp_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{uuid.uuid4()}_{filename}")
             file.save(temp_path)
             face_data = temp_path
             source = 'upload'
-            
+
         elif query_type == 'url':
-            # Handle image URL
-            image_url = data.get('image_url', '').strip()
+            image_url = (data.get('image_url', '') if not is_multipart else request.form.get('image_url', '')).strip()
             if not image_url:
                 return jsonify({'error': 'No image URL provided', 'code': 'NO_URL'}), 400
-            
+
             if not image_url.startswith(('http://', 'https://')):
                 return jsonify({'error': 'Invalid URL format', 'code': 'INVALID_URL'}), 400
-            
+
             face_data = image_url
             source = 'url'
-            
-        elif query_type == 'web':
-            # Search across websites
-            target_urls = data.get('target_urls', [])
-            if not target_urls or not isinstance(target_urls, list):
-                return jsonify({'error': 'No target URLs provided', 'code': 'NO_URLS'}), 400
-            
-            if len(searcher.known_face_encodings) == 0:
-                return jsonify({'error': 'No faces indexed yet. Index faces before searching websites.', 'code': 'EMPTY_INDEX'}), 400
-            
-            # Perform web search
-            max_pages = min(int(data.get('max_pages', 3)), 10)
-            results = web_crawler.search_websites(target_urls, searcher, max_pages=max_pages)
-            return jsonify({
-                'success': True,
-                'type': 'web_search',
-                'results': results,
-                'count': len(results)
-            })
-        
+
         else:
             return jsonify({'error': 'Invalid search type', 'code': 'INVALID_TYPE'}), 400
-        
-        # Check if index is empty
+
         if len(searcher.known_face_encodings) == 0:
             return jsonify({'error': 'No faces indexed yet. Please index faces first.', 'code': 'EMPTY_INDEX'}), 400
-        
-        # Perform face search
+
         matches, error = searcher.search_enhanced(
             face_data,
             top_k=top_k,
             use_landmarks=use_landmarks
         )
-        
-        # Clean up temp file
+
         if source == 'upload' and os.path.exists(face_data):
             try:
                 os.remove(face_data)
             except:
                 pass
-        
+
         if error:
             return jsonify({'error': error, 'code': 'SEARCH_ERROR'}), 400
-        
-        # Format results
-        formatted_results = []
-        for match in matches:
-            image_path = match['metadata'].get('image_path', '')
-            result_obj = {
-                'similarity': round(float(match['combined_score'] * 100), 2),
-                'encoding_similarity': round(float(match['encoding_similarity'] * 100), 2),
-                'landmark_similarity': round(float(match['landmark_similarity'] * 100), 2),
-                'metadata': match['metadata'],
-                'image_path': image_path,
-                'image_url': image_path if image_path.startswith(('http://', 'https://')) else '',
-                'has_landmarks': match.get('has_landmarks', False),
-                'face_index': match['metadata'].get('face_index', 0),
-                'indexed_at': match['metadata'].get('indexed_at', '')
-            }
-            formatted_results.append(result_obj)
-        
+
+        formatted_results = [_format_match(m, top_k) for m in matches]
+
         return jsonify({
             'success': True,
             'type': 'face_search',
@@ -192,10 +206,28 @@ def search():
             'count': len(formatted_results),
             'use_landmarks': use_landmarks
         })
-        
+
     except Exception as e:
         logger.error(f"Search error: {str(e)}", exc_info=True)
         return jsonify({'error': str(e), 'code': 'SERVER_ERROR'}), 500
+
+
+def _format_match(match, top_k=None):
+    """Shared result formatting for index-based and web-crawl matches alike."""
+    metadata = match.get('metadata', {})
+    image_path = metadata.get('image_path', '') or match.get('image_url', '')
+    return {
+        'similarity': round(float(match['combined_score'] * 100), 2),
+        'encoding_similarity': round(float(match['encoding_similarity'] * 100), 2),
+        'landmark_similarity': round(float(match['landmark_similarity'] * 100), 2),
+        'metadata': metadata,
+        'image_path': image_path,
+        'image_url': image_path if image_path.startswith(('http://', 'https://')) else '',
+        'has_landmarks': match.get('has_landmarks', False),
+        'source_page': match.get('source_page', ''),
+        'face_index': metadata.get('face_index', 0),
+        'indexed_at': metadata.get('indexed_at', '')
+    }
 
 @app.route('/index', methods=['POST'])
 def index_faces():
