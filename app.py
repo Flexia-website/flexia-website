@@ -156,6 +156,7 @@ def search():
                         pass
 
             formatted_results = [_format_match(m, top_k) for m in raw_results[:top_k]]
+            formatted_results = [r for r in formatted_results if r is not None]
 
             return jsonify({
                 'success': True,
@@ -220,6 +221,7 @@ def search():
             return jsonify({'error': error, 'code': 'SEARCH_ERROR'}), 400
 
         formatted_results = [_format_match(m, top_k) for m in matches]
+        formatted_results = [r for r in formatted_results if r is not None]
 
         return jsonify({
             'success': True,
@@ -237,30 +239,40 @@ def search():
 def _format_match(match, top_k=None):
     """Shared result formatting for index-based and web-crawl matches alike."""
     import math
-    metadata = match.get('metadata', {})
-    image_path = metadata.get('image_path', '') or match.get('image_url', '')
+    
+    if not isinstance(match, dict):
+        logger.error(f"Invalid match object: {type(match)}")
+        return None
+    
+    metadata = match.get('metadata', {}) or {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    
+    image_path = metadata.get('image_path', '') or match.get('image_url', '') or ''
     
     def safe_score(value):
         """Convert NaN/Inf to 0, otherwise round percentage."""
         try:
-            val = float(value * 100)
+            if value is None:
+                return 0.0
+            val = float(value) * 100
             if math.isnan(val) or math.isinf(val):
                 return 0.0
             return round(val, 2)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, AttributeError):
             return 0.0
     
     return {
-        'similarity': safe_score(match.get('combined_score', 0)),
-        'encoding_similarity': safe_score(match.get('encoding_similarity', 0)),
-        'landmark_similarity': safe_score(match.get('landmark_similarity', 0)),
+        'similarity': safe_score(match.get('combined_score')),
+        'encoding_similarity': safe_score(match.get('encoding_similarity')),
+        'landmark_similarity': safe_score(match.get('landmark_similarity')),
         'metadata': metadata,
-        'image_path': image_path,
-        'image_url': image_path if image_path.startswith(('http://', 'https://')) else '',
-        'has_landmarks': match.get('has_landmarks', False),
-        'source_page': match.get('source_page', ''),
-        'face_index': metadata.get('face_index', 0),
-        'indexed_at': metadata.get('indexed_at', '')
+        'image_path': str(image_path),
+        'image_url': str(image_path) if image_path and image_path.startswith(('http://', 'https://')) else '',
+        'has_landmarks': bool(match.get('has_landmarks', False)),
+        'source_page': str(match.get('source_page', '')),
+        'face_index': int(metadata.get('face_index', 0)) if metadata.get('face_index') is not None else 0,
+        'indexed_at': str(metadata.get('indexed_at', ''))
     }
 
 @app.route('/index', methods=['POST'])
