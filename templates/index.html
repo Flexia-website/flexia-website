@@ -224,6 +224,11 @@
         .upload-area-compact {
             padding: 1.5rem 1rem;
         }
+
+        .depth-option:has(input:checked) {
+            border-color: var(--accent) !important;
+            background: linear-gradient(135deg, rgba(0,184,169,0.06), rgba(127,219,202,0.06));
+        }
             font-size: 3rem;
             background: linear-gradient(135deg, var(--accent), var(--accent-light));
             -webkit-background-clip: text;
@@ -922,15 +927,30 @@
                     </p>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">Pages to Check</label>
-                    <input type="number" id="maxPages" class="form-input" value="3" min="1" max="10">
-                    <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.5rem;">
-                        How many pages of the site to crawl (higher = slower but more thorough)
-                    </p>
+                    <label class="form-label">Search Depth</label>
+                    <div style="display: flex; gap: 0.75rem;">
+                        <label style="flex: 1; display: flex; align-items: center; gap: 0.5rem; padding: 0.875rem; border: 2px solid var(--border); border-radius: var(--radius-md); cursor: pointer;" class="depth-option">
+                            <input type="radio" name="searchDepth" value="quick" checked style="cursor: pointer;">
+                            <span>
+                                <strong>Quick</strong><br>
+                                <span style="font-size: 0.8rem; color: var(--text-secondary);">Main pages only, faster</span>
+                            </span>
+                        </label>
+                        <label style="flex: 1; display: flex; align-items: center; gap: 0.5rem; padding: 0.875rem; border: 2px solid var(--border); border-radius: var(--radius-md); cursor: pointer;" class="depth-option">
+                            <input type="radio" name="searchDepth" value="thorough" style="cursor: pointer;">
+                            <span>
+                                <strong>Thorough</strong><br>
+                                <span style="font-size: 0.8rem; color: var(--text-secondary);">Whole site, slower</span>
+                            </span>
+                        </label>
+                    </div>
                 </div>
                 <button class="btn btn-primary" onclick="searchWeb()">
                     <i class="fas fa-globe"></i> Search This Website
                 </button>
+                <p style="font-size: 0.8rem; color: var(--text-secondary); text-align: center; margin-top: 0.75rem;">
+                    Thorough searches can take a few minutes on larger sites
+                </p>
             </div>
         </div>
 
@@ -1081,11 +1101,13 @@
                 return;
             }
             
+            const depth = document.querySelector('input[name="searchDepth"]:checked').value;
+
             const formData = new FormData();
             formData.append('image', webFile);
             formData.append('type', 'web');
             formData.append('target_urls', JSON.stringify(urls));
-            formData.append('max_pages', parseInt(document.getElementById('maxPages').value) || 3);
+            formData.append('search_depth', depth);
             formData.append('use_landmarks', document.getElementById('useLandmarks').checked);
             
             searchFace(formData, {}, 'web');
