@@ -3,10 +3,11 @@ services:
     name: face-search-pro
     runtime: python
     plan: standard
-    pythonVersion: 3.10.0
     buildCommand: "pip install --upgrade pip && pip install -r requirements.txt"
     startCommand: "gunicorn --bind 0.0.0.0:$PORT --timeout 120 --workers 2 app:app"
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
       - key: SECRET_KEY
         generateValue: true
       - key: FLASK_ENV
