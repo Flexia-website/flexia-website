@@ -83,7 +83,11 @@ def search():
             data = {}
             query_type = request.form.get('type', 'upload')
             use_landmarks = request.form.get('use_landmarks', 'true').lower() == 'true'
-            top_k = min(int(request.form.get('top_k', 10)), 50)
+            # Web crawl results shouldn't be squeezed by the same default used
+            # for index search - default much higher, cap generously.
+            default_top_k = 200 if query_type == 'web' else 10
+            max_top_k = 500 if query_type == 'web' else 50
+            top_k = min(int(request.form.get('top_k', default_top_k)), max_top_k)
         else:
             data = request.get_json() if request.is_json else {}
             query_type = data.get('type', 'upload')

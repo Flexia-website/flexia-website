@@ -16,40 +16,57 @@ class WebCrawler:
         self.visited_urls = set()
         self.timeout = 10
     
-    def extract_images_from_page(self, url, max_images=30):
-        """Extract image URLs from a web page"""
+    def extract_images_from_page(self, url, max_images=300):
+        """Extract image URLs from a web page - covers <img src>, lazy-load
+        attributes, srcset, and <picture>/<source> so a page isn't undercounted."""
         images = []
+        seen = set()
+
+        def add(src):
+            if not src:
+                return
+            full_url = urljoin(url, src.strip())
+            if full_url not in seen:
+                seen.add(full_url)
+                images.append(full_url)
+
         try:
             response = self.session.get(url, timeout=self.timeout)
             if response.status_code != 200:
                 logger.warning(f"Failed to fetch {url}: HTTP {response.status_code}")
                 return images
-            
+
             soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Regular image tags
+
+            # Standard <img> tags
             for img in soup.find_all('img'):
-                src = img.get('src')
-                if src:
-                    full_url = urljoin(url, src)
-                    images.append(full_url)
+                add(img.get('src'))
+                if len(images) >= max_images:
+                    return images
+
+            # Common lazy-load attribute variants
+            lazy_attrs = ['data-src', 'data-lazy-src', 'data-original', 'data-srcset']
+            for attr in lazy_attrs:
+                for img in soup.find_all(attrs={attr: True}):
+                    value = img.get(attr)
+                    # data-srcset can contain multiple "url size" pairs - take the first URL
+                    first_url = value.split(',')[0].strip().split(' ')[0] if value else None
+                    add(first_url)
                     if len(images) >= max_images:
-                        break
-            
-            # Lazy loading images (data-src)
-            if len(images) < max_images:
-                for img in soup.find_all(attrs={'data-src': True}):
-                    src = img.get('data-src')
-                    if src:
-                        full_url = urljoin(url, src)
-                        if full_url not in images:
-                            images.append(full_url)
-                            if len(images) >= max_images:
-                                break
-            
+                        return images
+
+            # <picture><source srcset="..."></picture>
+            for source in soup.find_all('source'):
+                srcset = source.get('srcset')
+                if srcset:
+                    first_url = srcset.split(',')[0].strip().split(' ')[0]
+                    add(first_url)
+                    if len(images) >= max_images:
+                        return images
+
             logger.info(f"Extracted {len(images)} images from {url}")
             return images
-            
+
         except requests.Timeout:
             logger.warning(f"Timeout extracting images from {url}")
             return images
