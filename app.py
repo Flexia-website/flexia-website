@@ -24,12 +24,25 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Custom JSON encoder to handle NaN/Infinity
+class SafeJSONEncoder(json.JSONEncoder):
+    def encode(self, o):
+        if isinstance(o, float):
+            if np.isnan(o) or np.isinf(o):
+                return '0.0'
+        return super().encode(o)
+    
+    def iterencode(self, o, _one_shot=False):
+        for chunk in super().iterencode(o, _one_shot):
+            yield chunk.replace(':NaN', ':0.0').replace(':Infinity', ':999999.0').replace(':-Infinity', ':-999999.0')
+
 # Initialize Flask app
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max upload
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['JSON_SORT_KEYS'] = False
+app.json_encoder = SafeJSONEncoder
 
 # Enable CORS
 CORS(app, resources={r"/*": {"origins": "*", "methods": ["GET", "POST", "OPTIONS"]}})
@@ -223,12 +236,24 @@ def search():
 
 def _format_match(match, top_k=None):
     """Shared result formatting for index-based and web-crawl matches alike."""
+    import math
     metadata = match.get('metadata', {})
     image_path = metadata.get('image_path', '') or match.get('image_url', '')
+    
+    def safe_score(value):
+        """Convert NaN/Inf to 0, otherwise round percentage."""
+        try:
+            val = float(value * 100)
+            if math.isnan(val) or math.isinf(val):
+                return 0.0
+            return round(val, 2)
+        except (TypeError, ValueError):
+            return 0.0
+    
     return {
-        'similarity': round(float(match['combined_score'] * 100), 2),
-        'encoding_similarity': round(float(match['encoding_similarity'] * 100), 2),
-        'landmark_similarity': round(float(match['landmark_similarity'] * 100), 2),
+        'similarity': safe_score(match.get('combined_score', 0)),
+        'encoding_similarity': safe_score(match.get('encoding_similarity', 0)),
+        'landmark_similarity': safe_score(match.get('landmark_similarity', 0)),
         'metadata': metadata,
         'image_path': image_path,
         'image_url': image_path if image_path.startswith(('http://', 'https://')) else '',
